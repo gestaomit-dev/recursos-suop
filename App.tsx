@@ -6,7 +6,7 @@ import { FileUpload } from './components/FileUpload';
 import { FileCard } from './components/FileCard';
 import { SplitterFeature } from './components/SplitterFeature';
 import { BarcodeScannerFeature } from './components/BarcodeScannerFeature';
-import { Bot, Download, Trash2, FileOutput, Layers, FileSignature, ScanBarcode } from 'lucide-react';
+import { Bot, Download, Trash2, FileOutput, Layers, FileSignature, ScanBarcode, Info } from 'lucide-react';
 
 const generateId = () => crypto.randomUUID();
 
@@ -39,50 +39,63 @@ export default function App() {
     }));
 
     setFiles(prev => [...prev, ...newFiles]);
+    // Passamos a lista completa (existentes + novos) para o processamento
     processQueue([...files, ...newFiles]);
   };
 
   const processQueue = async (currentFiles: AnalyzedFile[]) => {
+    // Filtra apenas o que precisa ser processado
     const filesToProcess = currentFiles.filter(f => f.status === AnalysisStatus.IDLE);
     if (filesToProcess.length === 0) return;
 
     setIsProcessing(true);
 
-    setFiles(prev => prev.map(f => 
-      filesToProcess.find(ftp => ftp.id === f.id) 
-        ? { ...f, status: AnalysisStatus.PROCESSING } 
-        : f
-    ));
+    // ALTERAÇÃO: Processamento SEQUENCIAL para evitar erro de Cota (429) da API
+    // O Promise.all disparava todas as requisições juntas, estourando o limite do plano gratuito.
+    for (const [index, fileItem] of filesToProcess.entries()) {
+      
+      // 1. Atualiza status para Processando na UI
+      setFiles(prev => prev.map(f => 
+        f.id === fileItem.id ? { ...f, status: AnalysisStatus.PROCESSING } : f
+      ));
 
-    const updates = await Promise.all(filesToProcess.map(async (fileItem) => {
       try {
-        const data = await analyzeDocument(fileItem.file, fileItem.docType);
-        return {
-          id: fileItem.id,
-          status: AnalysisStatus.COMPLETE,
-          data
-        };
-      } catch (error: any) {
-        // Verifica se é erro de senha
-        if (error.message === "PASSWORD_REQUIRED") {
-           return {
-             id: fileItem.id,
-             status: AnalysisStatus.WAITING_PASSWORD
-           };
+        // Delay artificial entre requisições para respeitar Rate Limit (aprox 1 req a cada 2s)
+        if (index > 0) {
+          await new Promise(resolve => setTimeout(resolve, 2500));
         }
 
-        return {
-          id: fileItem.id,
-          status: AnalysisStatus.ERROR,
-          errorMessage: error.message || "Falha na análise"
-        };
-      }
-    }));
+        const data = await analyzeDocument(fileItem.file, fileItem.docType);
+        
+        // 2. Sucesso
+        setFiles(prev => prev.map(f => 
+          f.id === fileItem.id ? { ...f, status: AnalysisStatus.COMPLETE, data } : f
+        ));
+      } catch (error: any) {
+        // 3. Tratamento de Erro
+        let status = AnalysisStatus.ERROR;
+        let errorMessage = error.message || "Falha na análise";
 
-    setFiles(prev => prev.map(f => {
-      const update = updates.find(u => u.id === f.id);
-      return update ? { ...f, ...update } : f;
-    }));
+        if (error.message === "PASSWORD_REQUIRED") {
+           status = AnalysisStatus.WAITING_PASSWORD;
+           errorMessage = ""; // Limpa mensagem pois vai mostrar o campo de senha
+        } else if (
+            errorMessage.toLowerCase().includes("quota") || 
+            errorMessage.includes("429") || 
+            errorMessage.toLowerCase().includes("exceeded")
+        ) {
+           errorMessage = "Cota da API excedida. Aguarde um momento.";
+        }
+
+        setFiles(prev => prev.map(f => 
+          f.id === fileItem.id ? { 
+            ...f, 
+            status, 
+            errorMessage: status === AnalysisStatus.ERROR ? errorMessage : undefined 
+          } : f
+        ));
+      }
+    }
 
     setIsProcessing(false);
   };
@@ -273,6 +286,21 @@ export default function App() {
         {/* VIEW: Renamer */}
         {activeTab === 'renamer' && (
           <div className="animate-in fade-in duration-300">
+            
+            {/* Information Banner about Quota */}
+            <div className="mb-6 bg-slate-800/60 border border-slate-700 rounded-lg p-4 flex items-start gap-3 shadow-sm">
+                <div className="p-2 bg-blue-500/10 rounded-lg text-blue-400">
+                    <Info className="w-5 h-5" />
+                </div>
+                <div>
+                    <h3 className="text-sm font-semibold text-blue-200 mb-1">Dica para evitar erros de cota</h3>
+                    <p className="text-sm text-slate-400 leading-relaxed">
+                        A IA gratuita possui um limite de requisições por minuto. 
+                        Recomendamos enviar lotes de <strong>5 a 10 arquivos</strong> por vez para garantir o processamento contínuo sem erros.
+                    </p>
+                </div>
+            </div>
+
             {/* Upload Section */}
             <div className="mb-10">
               <FileUpload 
