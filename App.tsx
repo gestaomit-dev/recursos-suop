@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { AnalyzedFile, AnalysisStatus, DocumentType } from './types';
 import { analyzeDocument } from './services/geminiService';
 import { unlockPdf } from './services/pdfService';
@@ -6,7 +6,7 @@ import { FileUpload } from './components/FileUpload';
 import { FileCard } from './components/FileCard';
 import { SplitterFeature } from './components/SplitterFeature';
 import { BarcodeScannerFeature } from './components/BarcodeScannerFeature';
-import { Bot, Download, Trash2, FileOutput, Layers, FileSignature, ScanBarcode, Info } from 'lucide-react';
+import { Bot, Download, Trash2, FileOutput, Layers, FileSignature, ScanBarcode, Info, Play, PauseCircle, Lock, Unlock, CheckCircle, Loader2, AlertTriangle } from 'lucide-react';
 
 const generateId = () => crypto.randomUUID();
 
@@ -18,7 +18,21 @@ export default function App() {
   // --- Renamer State & Logic ---
   const [files, setFiles] = useState<AnalyzedFile[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isCooldown, setIsCooldown] = useState(false);
+  const [unlockNotification, setUnlockNotification] = useState(false);
   const [selectedType, setSelectedType] = useState<DocumentType>('comprovante');
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  
+  // Ref para cancelar o processamento em andamento
+  const abortProcessingRef = useRef(false);
+
+  // Timer para esconder a notificação de desbloqueio automaticamente
+  useEffect(() => {
+    if (unlockNotification) {
+      const timer = setTimeout(() => setUnlockNotification(false), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [unlockNotification]);
 
   const handleTypeChange = (newType: DocumentType) => {
     setSelectedType(newType);
@@ -29,6 +43,8 @@ export default function App() {
   };
 
   const handleFilesSelected = async (selectedFiles: File[]) => {
+    setUnlockNotification(false);
+
     const newFiles: AnalyzedFile[] = selectedFiles.map(file => ({
       id: generateId(),
       file,
@@ -39,104 +55,143 @@ export default function App() {
     }));
 
     setFiles(prev => [...prev, ...newFiles]);
-    // Passamos a lista completa (existentes + novos) para o processamento
     processQueue([...files, ...newFiles]);
   };
 
   const processQueue = async (currentFiles: AnalyzedFile[]) => {
-    // Filtra apenas o que precisa ser processado
+    // Reset o sinal de abortar ao iniciar novo processamento
+    abortProcessingRef.current = false;
+
     const filesToProcess = currentFiles.filter(f => f.status === AnalysisStatus.IDLE);
-    if (filesToProcess.length === 0) return;
+    if (filesToProcess.length === 0) {
+      setIsProcessing(false);
+      return;
+    }
 
     setIsProcessing(true);
+    setUnlockNotification(false);
+    let abortQueue = false;
 
-    // ALTERAÇÃO: Processamento SEQUENCIAL para evitar erro de Cota (429) da API
-    // O Promise.all disparava todas as requisições juntas, estourando o limite do plano gratuito.
+    // Processamento SEQUENCIAL
     for (const [index, fileItem] of filesToProcess.entries()) {
-      
-      // 1. Atualiza status para Processando na UI
-      setFiles(prev => prev.map(f => 
-        f.id === fileItem.id ? { ...f, status: AnalysisStatus.PROCESSING } : f
-      ));
+      // 1. Check Abort Signal
+      if (abortQueue || abortProcessingRef.current) return;
+
+      // Update status to PROCESSING
+      setFiles(prev => {
+        if (abortProcessingRef.current) return prev; // Safety check inside setter
+        return prev.map(f => f.id === fileItem.id ? { ...f, status: AnalysisStatus.PROCESSING } : f);
+      });
 
       try {
-        // Delay artificial entre requisições para respeitar Rate Limit (aprox 1 req a cada 2s)
+        // Delay logic
         if (index > 0) {
-          await new Promise(resolve => setTimeout(resolve, 2500));
+          if (abortProcessingRef.current) return;
+          await new Promise(resolve => setTimeout(resolve, 5000));
+          if (abortProcessingRef.current) return;
         }
 
         const data = await analyzeDocument(fileItem.file, fileItem.docType);
         
-        // 2. Sucesso
-        setFiles(prev => prev.map(f => 
-          f.id === fileItem.id ? { ...f, status: AnalysisStatus.COMPLETE, data } : f
-        ));
+        if (abortProcessingRef.current) return;
+
+        // Update status to COMPLETE
+        setFiles(prev => {
+          if (abortProcessingRef.current) return prev;
+          return prev.map(f => f.id === fileItem.id ? { ...f, status: AnalysisStatus.COMPLETE, data } : f);
+        });
+
       } catch (error: any) {
-        // 3. Tratamento de Erro
+        if (abortProcessingRef.current) return;
+
         let status = AnalysisStatus.ERROR;
         let errorMessage = error.message || "Falha na análise";
+        let isQuotaError = false;
 
         if (error.message === "PASSWORD_REQUIRED") {
            status = AnalysisStatus.WAITING_PASSWORD;
-           errorMessage = ""; // Limpa mensagem pois vai mostrar o campo de senha
+           errorMessage = ""; 
         } else if (
             errorMessage.toLowerCase().includes("quota") || 
             errorMessage.includes("429") || 
             errorMessage.toLowerCase().includes("exceeded")
         ) {
-           errorMessage = "Cota da API excedida. Aguarde um momento.";
+           isQuotaError = true;
+           errorMessage = "Pausado: Limite da API atingido.";
+           abortQueue = true; 
         }
 
-        setFiles(prev => prev.map(f => 
-          f.id === fileItem.id ? { 
-            ...f, 
-            status, 
-            errorMessage: status === AnalysisStatus.ERROR ? errorMessage : undefined 
-          } : f
-        ));
+        setFiles(prev => {
+          if (abortProcessingRef.current) return prev;
+          return prev.map(f => 
+            f.id === fileItem.id ? { 
+              ...f, 
+              status: isQuotaError ? AnalysisStatus.IDLE : status, 
+              errorMessage: status === AnalysisStatus.ERROR ? errorMessage : undefined 
+            } : f
+          );
+        });
+
+        // COOLDOWN LOGIC
+        if (isQuotaError) {
+           setIsProcessing(false); 
+           setIsCooldown(true);
+           
+           setTimeout(() => {
+             // Only unlock if user hasn't aborted/cleared in the meantime
+             if (!abortProcessingRef.current) {
+                 setIsCooldown(false);
+                 setUnlockNotification(true); 
+             }
+           }, 15000);
+           
+           return;
+        }
       }
     }
 
-    setIsProcessing(false);
+    if (!abortProcessingRef.current) {
+        setIsProcessing(false);
+        if (!abortQueue) {
+            setUnlockNotification(true);
+        }
+    }
   };
 
+  const handleRetryProcessing = () => {
+      setUnlockNotification(false);
+      processQueue(files);
+  }
+
   const handleUnlock = async (id: string, password: string) => {
-    // Encontrar o arquivo
     const fileItem = files.find(f => f.id === id);
     if (!fileItem) return;
 
     try {
       const unlockedFile = await unlockPdf(fileItem.file, password);
-      
-      // Atualizar o estado com o arquivo desbloqueado e reiniciar status para processamento
       setFiles(prev => prev.map(f => {
          if (f.id === id) {
            return {
              ...f,
              file: unlockedFile,
-             status: AnalysisStatus.IDLE, // Volta para IDLE para ser pego pelo processQueue
-             errorMessage: undefined // Limpa erros anteriores
+             status: AnalysisStatus.IDLE, 
+             errorMessage: undefined
            };
          }
          return f;
       }));
-
-      // Disparar processamento novamente (com um pequeno delay para garantir atualização de estado)
+      
+      // Small delay to allow state update before processing
       setTimeout(() => {
         setFiles(currentFiles => {
            processQueue(currentFiles);
            return currentFiles;
         });
       }, 100);
-
     } catch (error) {
-      // Definir mensagem de erro no item do arquivo
       setFiles(prev => prev.map(f => {
         if (f.id === id) {
-          return {
-            ...f,
-            errorMessage: "Senha incorreta. Tente novamente."
-          };
+          return { ...f, errorMessage: "Senha incorreta. Tente novamente." };
         }
         return f;
       }));
@@ -154,20 +209,16 @@ export default function App() {
   const generateNewFilename = (item: AnalyzedFile) => {
     if (!item.data) return item.originalName;
     const { date, beneficiary, value } = item.data;
-    
     const safeBeneficiary = beneficiary.replace(/[\\/:*?"<>|]/g, '').trim().toUpperCase();
     const safeValue = value.replace(/\./g, ''); 
-
     let typeLabel = item.docType.toUpperCase();
     if (item.docType === 'nota_fiscal') typeLabel = 'NOTA FISCAL';
-    
     const ext = item.originalName.split('.').pop();
     return `${date}_${safeBeneficiary}_${safeValue}_${typeLabel}.${ext}`;
   };
 
   const handleDownload = (item: AnalyzedFile) => {
     if (!item.data) return;
-    
     const newName = generateNewFilename(item);
     const url = URL.createObjectURL(item.file);
     const a = document.createElement('a');
@@ -185,9 +236,23 @@ export default function App() {
   };
 
   const handleClearAll = () => {
-    if (confirm("Tem certeza que deseja remover todos os arquivos?")) {
-      setFiles([]);
+    if (files.length > 0) {
+      setShowDeleteConfirm(true);
     }
+  };
+
+  const executeClearAll = () => {
+    // 1. Stop background processing immediately
+    abortProcessingRef.current = true;
+    
+    // 2. Clear data state
+    setFiles([]);
+    
+    // 3. Reset UI states
+    setIsProcessing(false);
+    setIsCooldown(false);
+    setUnlockNotification(true);
+    setShowDeleteConfirm(false);
   };
 
   const handlePreview = (item: AnalyzedFile) => {
@@ -196,9 +261,11 @@ export default function App() {
   };
 
   const completedCount = files.filter(f => f.status === AnalysisStatus.COMPLETE).length;
+  const idleCount = files.filter(f => f.status === AnalysisStatus.IDLE).length;
   const totalCount = files.length;
-
-  // --- End Renamer Logic ---
+  const hasErrors = files.some(f => f.status === AnalysisStatus.ERROR && f.errorMessage?.includes("Limite"));
+  
+  const isLocked = isProcessing || isCooldown;
 
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col font-sans">
@@ -250,20 +317,6 @@ export default function App() {
               <Layers className="w-4 h-4" />
               <span>Separador</span>
             </button>
-            {/* 
-            <button
-              onClick={() => setActiveTab('cutter')}
-              className={`
-                flex items-center space-x-2 px-4 py-3 text-sm font-medium border-b-2 transition-all whitespace-nowrap
-                ${activeTab === 'cutter' 
-                  ? 'border-indigo-500 text-indigo-400 bg-slate-800/30' 
-                  : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/30'}
-              `}
-            >
-              <Scissors className="w-4 h-4" />
-              <span>Recortar PDF</span>
-            </button> 
-            */}
             <button
               onClick={() => setActiveTab('barcode')}
               className={`
@@ -281,31 +334,102 @@ export default function App() {
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 w-full max-w-5xl mx-auto px-4 py-8">
+      <main className="flex-1 w-full max-w-5xl mx-auto px-4 py-8 relative">
         
-        {/* VIEW: Renamer */}
+        {/* Confirmation Modal */}
+        {showDeleteConfirm && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="bg-slate-800 border border-slate-700 rounded-xl p-6 max-w-sm w-full shadow-2xl transform transition-all scale-100 animate-in zoom-in-95 duration-200">
+                <h3 className="text-lg font-bold text-white mb-2 flex items-center">
+                  <AlertTriangle className="w-5 h-5 text-yellow-500 mr-2" />
+                  Limpar Lista?
+                </h3>
+                <p className="text-slate-400 text-sm mb-6 leading-relaxed">
+                  Isso removerá todos os arquivos da lista e interromperá qualquer processamento pendente. Esta ação não pode ser desfeita.
+                </p>
+                <div className="flex justify-end space-x-3">
+                  <button 
+                    onClick={() => setShowDeleteConfirm(false)}
+                    className="px-4 py-2 text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-700 rounded-lg transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                  <button 
+                    onClick={executeClearAll}
+                    className="px-4 py-2 text-sm font-bold text-white bg-red-600 hover:bg-red-500 rounded-lg shadow-lg shadow-red-900/20 transition-colors flex items-center"
+                  >
+                    <Trash2 className="w-4 h-4 mr-2" />
+                    Sim, Limpar Tudo
+                  </button>
+                </div>
+            </div>
+          </div>
+        )}
+
         {activeTab === 'renamer' && (
           <div className="animate-in fade-in duration-300">
             
-            {/* Information Banner about Quota */}
-            <div className="mb-6 bg-slate-800/60 border border-slate-700 rounded-lg p-4 flex items-start gap-3 shadow-sm">
-                <div className="p-2 bg-blue-500/10 rounded-lg text-blue-400">
-                    <Info className="w-5 h-5" />
-                </div>
-                <div>
-                    <h3 className="text-sm font-semibold text-blue-200 mb-1">Dica para evitar erros de cota</h3>
-                    <p className="text-sm text-slate-400 leading-relaxed">
-                        A IA gratuita possui um limite de requisições por minuto. 
-                        Recomendamos enviar lotes de <strong>5 a 10 arquivos</strong> por vez para garantir o processamento contínuo sem erros.
-                    </p>
-                </div>
+            {/* Notifications Area */}
+            <div className="space-y-4 mb-6">
+                
+                {/* 1. Mensagem de Desbloqueio (Sucesso) */}
+                {unlockNotification && (
+                    <div className="bg-emerald-900/20 border border-emerald-500/30 rounded-lg p-3 flex items-center animate-in slide-in-from-top-2">
+                        <CheckCircle className="w-5 h-5 text-emerald-400 mr-3" />
+                        <div>
+                            <h3 className="text-sm font-bold text-emerald-200">Importação Liberada!</h3>
+                            <p className="text-xs text-emerald-400/80">O sistema está pronto para receber novos arquivos.</p>
+                        </div>
+                    </div>
+                )}
+
+                {/* 2. Mensagem de Erro / Cooldown (Prioridade Alta) */}
+                {isCooldown && (
+                    <div className="bg-orange-900/20 border border-orange-500/30 rounded-lg p-3 flex items-center animate-pulse">
+                        <Lock className="w-5 h-5 text-orange-400 mr-3" />
+                        <div>
+                            <h3 className="text-sm font-bold text-orange-200">Importação Bloqueada Temporariamente</h3>
+                            <p className="text-xs text-orange-400/80">Aguardando liberação da API (Cooldown de 15s) para evitar erros.</p>
+                        </div>
+                    </div>
+                )}
+
+                {/* 3. Mensagem de Processamento (Bloqueado) */}
+                {isProcessing && !isCooldown && (
+                    <div className="bg-slate-800/60 border border-slate-700 rounded-lg p-4 flex items-start gap-3 shadow-sm animate-in fade-in">
+                        <div className="p-2 bg-blue-500/10 rounded-lg text-blue-400">
+                            <Loader2 className="w-5 h-5 animate-spin" />
+                        </div>
+                        <div className="flex-1">
+                            <h3 className="text-sm font-semibold text-blue-200 mb-1">Processamento em Andamento</h3>
+                            <p className="text-sm text-slate-400 leading-relaxed">
+                                Para evitar erros de "Cota Excedida", a importação de novos arquivos está <strong>bloqueada</strong> enquanto a fila atual é processada.
+                            </p>
+                        </div>
+                    </div>
+                )}
+
+                {/* 4. Info Padrão (Idle) */}
+                {!isLocked && !unlockNotification && !hasErrors && (
+                    <div className="bg-slate-800/60 border border-slate-700 rounded-lg p-4 flex items-start gap-3 shadow-sm">
+                        <div className="p-2 bg-blue-500/10 rounded-lg text-blue-400">
+                            <Info className="w-5 h-5" />
+                        </div>
+                        <div className="flex-1">
+                            <h3 className="text-sm font-semibold text-blue-200 mb-1">Dica de Uso</h3>
+                            <p className="text-sm text-slate-400 leading-relaxed">
+                                A IA gratuita possui limites de velocidade. Recomendamos enviar lotes de <strong>5 a 10 arquivos</strong> por vez.
+                            </p>
+                        </div>
+                    </div>
+                )}
             </div>
 
             {/* Upload Section */}
             <div className="mb-10">
               <FileUpload 
                 onFilesSelected={handleFilesSelected} 
-                disabled={isProcessing}
+                disabled={isLocked}
                 selectedType={selectedType}
                 onTypeChange={handleTypeChange}
               />
@@ -314,10 +438,31 @@ export default function App() {
             {/* Action Bar */}
             {files.length > 0 && (
               <div className="flex flex-wrap items-center justify-between mb-6 gap-4">
-                <h2 className="text-lg font-semibold text-slate-200 flex items-center">
-                  <FileOutput className="w-5 h-5 mr-2 text-indigo-400" />
-                  Resultados
-                </h2>
+                <div className="flex items-center gap-4">
+                    <h2 className="text-lg font-semibold text-slate-200 flex items-center">
+                    <FileOutput className="w-5 h-5 mr-2 text-indigo-400" />
+                    Resultados
+                    </h2>
+                    
+                    {/* Status Indicators */}
+                    {isProcessing ? (
+                        <span className="flex items-center text-xs text-blue-400 bg-blue-400/10 px-2 py-1 rounded border border-blue-400/20">
+                            <Play className="w-3 h-3 mr-1 animate-pulse" />
+                            Processando... (Bloqueado)
+                        </span>
+                    ) : isCooldown ? (
+                        <span className="flex items-center text-xs text-orange-400 bg-orange-400/10 px-2 py-1 rounded border border-orange-400/20">
+                            <Lock className="w-3 h-3 mr-1" />
+                            Resfriando API...
+                        </span>
+                    ) : idleCount > 0 ? (
+                        <span className="flex items-center text-xs text-yellow-400 bg-yellow-400/10 px-2 py-1 rounded border border-yellow-400/20 cursor-pointer hover:bg-yellow-400/20 transition-colors" onClick={handleRetryProcessing}>
+                             <PauseCircle className="w-3 h-3 mr-1" />
+                            {idleCount} pausados (Clique para retomar)
+                        </span>
+                    ) : null}
+                </div>
+
                 <div className="flex items-center space-x-3">
                   <button
                     onClick={handleClearAll}
@@ -371,20 +516,8 @@ export default function App() {
           </div>
         )}
 
-        {/* VIEW: Splitter */}
-        {activeTab === 'splitter' && (
-          <SplitterFeature />
-        )}
-
-        {/* VIEW: Cutter (Disabled) */}
-        {/* {activeTab === 'cutter' && (
-          <PdfCutterFeature />
-        )} */}
-
-        {/* VIEW: Barcode Scanner */}
-        {activeTab === 'barcode' && (
-          <BarcodeScannerFeature />
-        )}
+        {activeTab === 'splitter' && <SplitterFeature />}
+        {activeTab === 'barcode' && <BarcodeScannerFeature />}
 
       </main>
 

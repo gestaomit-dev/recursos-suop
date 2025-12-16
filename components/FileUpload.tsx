@@ -1,5 +1,5 @@
 import React, { useRef } from 'react';
-import { UploadCloud, FileCheck, Receipt, ScrollText } from 'lucide-react';
+import { UploadCloud, FileCheck, Receipt, ScrollText, Lock, Loader2 } from 'lucide-react';
 import { DocumentType } from '../types';
 
 interface FileUploadProps {
@@ -40,12 +40,14 @@ export const FileUpload: React.FC<FileUploadProps> = ({
 
   const TypeButton = ({ type, label, icon: Icon }: { type: DocumentType; label: string; icon: any }) => (
     <button
-      onClick={() => onTypeChange(type)}
+      onClick={() => !disabled && onTypeChange(type)}
+      disabled={disabled}
       className={`
         flex items-center space-x-2 px-4 py-2 rounded-lg text-sm font-medium transition-all
         ${selectedType === type 
-          ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/30' 
+          ? disabled ? 'bg-slate-700 text-slate-400' : 'bg-blue-600 text-white shadow-lg shadow-blue-900/30' 
           : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white'}
+        ${disabled ? 'opacity-50 cursor-not-allowed' : ''}
       `}
     >
       <Icon className="w-4 h-4" />
@@ -68,10 +70,10 @@ export const FileUpload: React.FC<FileUploadProps> = ({
         className={`
           relative border-2 border-dashed rounded-xl p-8 
           flex flex-col items-center justify-center 
-          transition-all duration-300 cursor-pointer
+          transition-all duration-300
           ${disabled 
-            ? 'border-slate-700 bg-slate-800/50 opacity-50 cursor-not-allowed' 
-            : 'border-blue-500/30 bg-slate-800/30 hover:border-blue-500 hover:bg-slate-800/80'
+            ? 'border-slate-700 bg-slate-900/50 cursor-not-allowed' 
+            : 'border-blue-500/30 bg-slate-800/30 hover:border-blue-500 hover:bg-slate-800/80 cursor-pointer'
           }
         `}
       >
@@ -84,17 +86,36 @@ export const FileUpload: React.FC<FileUploadProps> = ({
           accept="application/pdf,image/*"
           disabled={disabled}
         />
-        <div className="bg-slate-700 p-4 rounded-full mb-4">
-          <UploadCloud className="w-8 h-8 text-blue-400" />
-        </div>
-        <h3 className="text-lg font-semibold text-slate-200 mb-1">
-          Importar {selectedType === 'comprovante' ? 'Comprovantes' : selectedType === 'boleto' ? 'Boletos' : 'Notas Fiscais'}
-        </h3>
-        <p className="text-sm text-slate-400 text-center max-w-sm">
-          Arraste e solte seus arquivos aqui ou clique para buscar.
-          <br/>
-          <span className="text-xs text-slate-500">Todos os arquivos serão classificados como: <strong className="text-blue-400">{selectedType.toUpperCase().replace('_', ' ')}</strong></span>
-        </p>
+        
+        {disabled ? (
+            // LOCKED STATE VISUAL
+            <div className="flex flex-col items-center opacity-70 animate-pulse">
+                <div className="bg-slate-800 p-4 rounded-full mb-4 border border-slate-700">
+                  <Lock className="w-8 h-8 text-orange-400" />
+                </div>
+                <h3 className="text-lg font-semibold text-slate-300 mb-1">
+                  Importação Bloqueada
+                </h3>
+                <p className="text-sm text-slate-500 text-center max-w-sm">
+                  Aguarde o processamento atual terminar para evitar erros de cota da API.
+                </p>
+            </div>
+        ) : (
+            // NORMAL STATE VISUAL
+            <div className="flex flex-col items-center">
+                <div className="bg-slate-700 p-4 rounded-full mb-4">
+                  <UploadCloud className="w-8 h-8 text-blue-400" />
+                </div>
+                <h3 className="text-lg font-semibold text-slate-200 mb-1">
+                  Importar {selectedType === 'comprovante' ? 'Comprovantes' : selectedType === 'boleto' ? 'Boletos' : 'Notas Fiscais'}
+                </h3>
+                <p className="text-sm text-slate-400 text-center max-w-sm">
+                  Arraste e solte seus arquivos aqui ou clique para buscar.
+                  <br/>
+                  <span className="text-xs text-slate-500">Todos os arquivos serão classificados como: <strong className="text-blue-400">{selectedType.toUpperCase().replace('_', ' ')}</strong></span>
+                </p>
+            </div>
+        )}
       </div>
     </div>
   );
