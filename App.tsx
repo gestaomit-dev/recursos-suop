@@ -6,9 +6,15 @@ import { FileUpload } from './components/FileUpload';
 import { FileCard } from './components/FileCard';
 import { SplitterFeature } from './components/SplitterFeature';
 import { BarcodeScannerFeature } from './components/BarcodeScannerFeature';
-import { Bot, Download, Trash2, FileOutput, Layers, FileSignature, ScanBarcode, Info, Play, PauseCircle, Lock, Unlock, CheckCircle, Loader2, AlertTriangle } from 'lucide-react';
+import { Bot, Download, Trash2, FileOutput, Layers, FileSignature, ScanBarcode, Info, Play, PauseCircle, Lock, CheckCircle, Loader2, AlertTriangle } from 'lucide-react';
 
-const generateId = () => crypto.randomUUID();
+// Gerador de ID seguro para evitar crashes em ambientes sem crypto.randomUUID
+const generateId = () => {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return Date.now().toString(36) + Math.random().toString(36).substr(2);
+};
 
 type Tab = 'renamer' | 'splitter' | 'barcode';
 
