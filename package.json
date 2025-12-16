@@ -11,7 +11,7 @@
   "dependencies": {
     "lucide-react": "^0.556.0",
     "@google/genai": "^1.31.0",
-    "react-dom": "^19.2.1",
+    "react-dom": "^19.2.3",
     "react": "^19.2.1",
     "uuid": "^13.0.0",
     "pdf-lib": "1.17.1",

@@ -29,23 +29,35 @@
         background: #64748b; 
       }
     </style>
-  <script type="importmap">
+    <script>
+      // Polyfill para evitar "process is not defined" no navegador
+      window.process = {
+        env: {
+          NODE_ENV: 'development',
+          API_KEY: '' // Será substituído pelo bundler ou injetado
+        }
+      };
+    </script>
+    <script type="importmap">
 {
   "imports": {
     "lucide-react": "https://aistudiocdn.com/lucide-react@^0.556.0",
     "@google/genai": "https://aistudiocdn.com/@google/genai@^1.31.0",
-    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.1/",
+    "react-dom/client": "https://aistudiocdn.com/react-dom@^19.2.1/client",
+    "react-dom": "https://aistudiocdn.com/react-dom@^19.2.1",
     "react/": "https://aistudiocdn.com/react@^19.2.1/",
     "react": "https://aistudiocdn.com/react@^19.2.1",
     "uuid": "https://aistudiocdn.com/uuid@^13.0.0",
     "pdf-lib": "https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.esm.js",
     "pdfjs-dist": "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.0.379/+esm",
-    "jsqr": "https://cdn.jsdelivr.net/npm/jsqr@1.4.0/+esm"
+    "jsqr": "https://cdn.jsdelivr.net/npm/jsqr@1.4.0/+esm",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.3/"
   }
 }
 </script>
-</head>
+  </head>
   <body>
     <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
   </body>
 </html>

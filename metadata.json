@@ -1,5 +1,7 @@
 {
   "name": "Recursos Suop",
   "description": "An intelligent financial document analyzer that renames PDF receipts based on date, beneficiary, and value using Gemini AI.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [
+    "camera"
+  ]
 }
