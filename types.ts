@@ -14,6 +14,7 @@ export interface ExtractedData {
   beneficiary: string;  // Normalized name
   value: string;        // 1.234,56
   originalValue: string; // Raw value found
+  docNumber?: string;    // Número da NF ou do Documento
   explanation?: string;  // Which keywords were used
 }
 

@@ -1,4 +1,4 @@
-import { GoogleGenAI, Type, Schema } from "@google/genai";
+import { GoogleGenAI, Type } from "@google/genai";
 import { ExtractedData, DocumentType } from "../types";
 import jsQR from "jsqr";
 import { convertPdfToImage, isPdfEncrypted } from "./pdfService";
@@ -9,9 +9,12 @@ Você é um assistente especializado em análise de documentos financeiros.
 Sua função é extrair informações para renomeação de arquivos.
 
 REGRAS GERAIS DE EXTRAÇÃO:
-1. DATA (formato ddmmYYYY): Converta para apenas números.
+1. DATA (formato ddmmYYYY): Converta para apenas números (8 dígitos).
 2. NOME (Beneficiário/Emitente): MAIÚSCULAS. Mantenha espaços entre palavras. Remova pontuação (. , - /).
 3. VALOR (Formato BR): Ex: 1.234,56. Mantenha a vírgula decimal.
+4. NÚMERO DO DOCUMENTO: Extraia APENAS se houver um rótulo explícito e próximo como "Número", "NF-e", "Nº da Nota", "Fatura Nº" ou "Doc".
+   - CRÍTICO: Se encontrar um número sem um título que o identifique como o número do documento/nota, retorne obrigatoriamente null.
+   - PROIBIDO: Não capture chaves de acesso de 44 dígitos, códigos de barras, IDs de autenticação bancária, protocolos ou números soltos.
 
 CONTEXTO ESPECÍFICO DO TIPO "${docType.toUpperCase()}":
 `;
@@ -19,44 +22,51 @@ CONTEXTO ESPECÍFICO DO TIPO "${docType.toUpperCase()}":
   switch (docType) {
     case 'boleto':
       return basePrompt + `
-      - DATA: CRÍTICO: Use a "Data de Vencimento". NÃO use a data de emissão ou processamento. Se não houver vencimento explícito, use a data do documento.
-      - NOME: Procure por "Beneficiário", "Cedente" ou a Razão Social de quem recebe.
-      - VALOR: Procure por "Valor do Documento" ou "Valor Cobrado".
+      - DATA: CRÍTICO: Extraia exclusivamente a "DATA DE VENCIMENTO". Se for um boleto ou uma FATURA, ignore qualquer outra data (emissão, processamento).
+      - NOME: Procure por "Beneficiário", "Cedente" ou "Razão Social" do emissor.
+      - VALOR: Procure por "Valor do Documento" ou "Total a Pagar".
+      - NÚMERO: Capture o "Número do Documento" ou "Nosso Número" apenas se rotulado. Caso contrário, null.
       `;
     case 'nota_fiscal':
       return basePrompt + `
-      - DATA: CRÍTICO: Priorize a "Data de Vencimento" (faturas) ou "Data de Saída/Entrada". NÃO use a "Data de Emissão" a menos que não exista data de vencimento ou circulação.
-      - NOME: Procure por "Emitente", "Prestador de Serviços" ou "Razão Social".
-      - VALOR: Procure por "Valor Total da Nota" ou "Valor Líquido".
+      - DATA: Priorize "Data de Vencimento" se disponível (comum em faturas). Caso contrário, "Data de Emissão".
+      - NOME: Procure por "Emitente", "Prestador" ou "Razão Social".
+      - VALOR: Procure por "Valor Total da Nota".
+      - NÚMERO: Capture o "Número da Nota" ou "Número". Ignore chaves de acesso.
       `;
     case 'comprovante':
     default:
       return basePrompt + `
-      - DATA: CRÍTICO: Priorize a "Data de Vencimento" (se disponível no detalhe do pagamento) ou "Data do Pagamento/Agendamento". NÃO use a "Data de Emissão" ou "Data de Impressão" do comprovante.
+      - DATA: Priorize "Data do Pagamento" ou "Data da Operação".
       - NOME: Procure por "Beneficiário", "Favorecido", "Destino".
-      - VALOR: Procure por "Valor Pago", "Valor da Transação".
+      - VALOR: Procure por "Valor Pago".
+      - NÚMERO: Procure por "Autenticação", "Controle" ou "ID da Transação". Se não houver, null.
       `;
   }
 };
 
-const RESPONSE_SCHEMA: Schema = {
+const RESPONSE_SCHEMA = {
   type: Type.OBJECT,
   properties: {
     date: {
       type: Type.STRING,
-      description: "Data principal no formato ddmmYYYY",
+      description: "Data principal (vencimento se boleto/fatura) no formato ddmmYYYY",
     },
     beneficiary: {
       type: Type.STRING,
-      description: "Nome limpo em MAIÚSCULAS (com espaços, sem símbolos)",
+      description: "Nome limpo em MAIÚSCULAS",
     },
     value: {
       type: Type.STRING,
       description: "Valor formatado em PT-BR (ex: 1.234,56)",
     },
+    docNumber: {
+      type: Type.STRING,
+      description: "Número oficial rotulado no documento. Null se não houver título claro.",
+    },
     explanation: {
       type: Type.STRING,
-      description: "Breve explicação da extração",
+      description: "Explicação curta de onde os dados vieram",
     },
   },
   required: ["date", "beneficiary", "value"],
@@ -68,7 +78,6 @@ export const analyzeDocument = async (file: File, docType: DocumentType): Promis
     throw new Error("API Key not found in environment variables.");
   }
 
-  // Check for Password Protection before sending to API
   if (file.type === 'application/pdf') {
     const isEncrypted = await isPdfEncrypted(file);
     if (isEncrypted) {
@@ -82,7 +91,7 @@ export const analyzeDocument = async (file: File, docType: DocumentType): Promis
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-3-flash-preview",
       config: {
         systemInstruction: getSystemPrompt(docType),
         responseMimeType: "application/json",
@@ -97,7 +106,7 @@ export const analyzeDocument = async (file: File, docType: DocumentType): Promis
             },
           },
           {
-            text: `Analise este documento do tipo ${docType} e extraia os dados.`,
+            text: `Analise este documento financeiro. Se for uma FATURA ou BOLETO, foque no VENCIMENTO. Se não houver número identificado por um título claro, deixe docNumber como null.`,
           },
         ],
       },
@@ -113,6 +122,7 @@ export const analyzeDocument = async (file: File, docType: DocumentType): Promis
       beneficiary: data.beneficiary || "DESCONHECIDO",
       value: data.value || "0,00",
       originalValue: data.value || "0,00",
+      docNumber: data.docNumber || undefined,
       explanation: data.explanation || "Extraído automaticamente.",
     };
 
@@ -122,109 +132,63 @@ export const analyzeDocument = async (file: File, docType: DocumentType): Promis
   }
 };
 
-// --- HELPER PARA LEITURA DETERMINÍSTICA DE QR CODE ---
-
 const readQrCodeLocally = async (file: File): Promise<string | null> => {
   try {
     let imageFile = file;
-
-    // Se for PDF, converte a primeira página para imagem
     if (file.type === 'application/pdf') {
       try {
         imageFile = await convertPdfToImage(file);
       } catch (e) {
-        console.warn("Falha ao converter PDF para imagem para leitura QR:", e);
         return null;
       }
     }
-
-    // Criar um elemento de imagem HTML para carregar os dados
     const imageUrl = URL.createObjectURL(imageFile);
     const img = new Image();
     img.src = imageUrl;
-
     await new Promise((resolve, reject) => {
       img.onload = resolve;
       img.onerror = reject;
     });
-
-    // Desenhar no canvas para pegar os dados de pixel
     const canvas = document.createElement('canvas');
     canvas.width = img.width;
     canvas.height = img.height;
     const context = canvas.getContext('2d');
-    
     if (!context) return null;
-
     context.drawImage(img, 0, 0);
     const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
-    
-    // Usar jsQR para ler os dados reais
     const code = jsQR(imageData.data, imageData.width, imageData.height);
-    
     URL.revokeObjectURL(imageUrl);
-
-    if (code) {
-      return code.data;
-    }
-    return null;
+    return code ? code.data : null;
   } catch (error) {
-    console.error("Erro na leitura local do QR:", error);
     return null;
   }
 };
 
-// --- UPDATED FUNCTION FOR BARCODE & PIX EXTRACTION ---
-
-const PAYMENT_CODE_SCHEMA: Schema = {
+const PAYMENT_CODE_SCHEMA = {
   type: Type.OBJECT,
   properties: {
     barCode: {
       type: Type.STRING,
       description: "A linha digitável do boleto (47 ou 48 números). Null se não encontrado.",
     },
-    // Removido pixCode do Schema da IA para evitar alucinação
   },
-  // O Schema agora é opcional ou parcial, focamos no barCode
 };
 
 export const extractBoletoCode = async (file: File): Promise<{ barCode?: string; pixCode?: string; found: boolean }> => {
   const apiKey = process.env.API_KEY;
   if (!apiKey) throw new Error("API Key not found");
-
-  // 1. Tenta ler o QR Code LOCALMENTE (Determinístico - Zero Alucinação)
-  // Isso resolve o problema de códigos "aleatórios" gerados pela IA.
-  let localPixCode: string | null = null;
-  try {
-    localPixCode = await readQrCodeLocally(file);
-    // Validação básica: Pix Copia e Cola geralmente começa com 000201
-    if (localPixCode && !localPixCode.startsWith('000201')) {
-      // Se não começar com 000201, pode ser outro QR, mas vamos aceitar se parecer longo o suficiente
-      if (localPixCode.length < 20) localPixCode = null;
-    }
-  } catch (e) {
-    console.warn("Erro ao tentar ler QR localmente:", e);
+  let localPixCode = await readQrCodeLocally(file);
+  if (localPixCode && !localPixCode.startsWith('000201')) {
+    if (localPixCode.length < 20) localPixCode = null;
   }
-
-  // 2. Usa a IA APENAS para ler a Linha Digitável (Texto/OCR)
   const ai = new GoogleGenAI({ apiKey });
   const base64Data = await fileToBase64(file);
-
   let extractedBarCode: string | null = null;
-
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-3-flash-preview",
       config: {
-        systemInstruction: `
-          TAREFA: Extrair APENAS a Linha Digitável (Código de Barras Numérico) deste documento.
-          
-          REGRAS:
-          1. Procure por sequências numéricas longas (47 ou 48 dígitos).
-          2. Ignore QR Codes ou códigos Pix (isso é feito externamente).
-          3. Retorne apenas JSON com o campo 'barCode'.
-          4. Se não encontrar, retorne null.
-        `,
+        systemInstruction: `Extrair APENAS a Linha Digitável deste documento.`,
         responseMimeType: "application/json",
         responseSchema: PAYMENT_CODE_SCHEMA,
       },
@@ -235,24 +199,15 @@ export const extractBoletoCode = async (file: File): Promise<{ barCode?: string;
         ],
       },
     });
-
     const text = response.text;
     if (text) {
       const result = JSON.parse(text);
       if (result.barCode) {
-        // Limpeza agressiva
         const clean = result.barCode.replace(/[^0-9]/g, '');
-        if (clean.length >= 36) { // Aceita linha digitável parcial se for longa o suficiente
-           extractedBarCode = clean;
-        }
+        if (clean.length >= 36) extractedBarCode = clean;
       }
     }
-
-  } catch (error) {
-    console.error("Gemini Barcode Extraction Error:", error);
-    // Se a IA falhar, não quebramos tudo se já tivermos o Pix
-  }
-
+  } catch (error) {}
   return {
     barCode: extractedBarCode || undefined,
     pixCode: localPixCode || undefined,
