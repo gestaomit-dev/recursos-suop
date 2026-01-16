@@ -6,9 +6,7 @@ import { FileUpload } from './components/FileUpload';
 import { FileCard } from './components/FileCard';
 import { SplitterFeature } from './components/SplitterFeature';
 import { BarcodeScannerFeature } from './components/BarcodeScannerFeature';
-import { Bot, Download, Trash2, FileOutput, Layers, FileSignature, ScanBarcode, Info, Play, PauseCircle, Lock, CheckCircle, Loader2, AlertTriangle, Zap, Gauge } from 'lucide-react';
-
-const DAILY_LIMIT = 1500;
+import { Bot, Download, Trash2, FileOutput, Layers, FileSignature, ScanBarcode, Loader2, AlertTriangle } from 'lucide-react';
 
 const generateId = () => {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
@@ -27,33 +25,7 @@ export default function App() {
   const [unlockNotification, setUnlockNotification] = useState(false);
   const [selectedType, setSelectedType] = useState<DocumentType>('comprovante');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [dailyCount, setDailyCount] = useState(0);
   const abortProcessingRef = useRef(false);
-
-  useEffect(() => {
-    const today = new Date().toISOString().split('T')[0];
-    const savedQuota = localStorage.getItem('suop_daily_quota');
-    if (savedQuota) {
-      const { count, date } = JSON.parse(savedQuota);
-      if (date === today) {
-        setDailyCount(count);
-      } else {
-        localStorage.setItem('suop_daily_quota', JSON.stringify({ count: 0, date: today }));
-        setDailyCount(0);
-      }
-    } else {
-      localStorage.setItem('suop_daily_quota', JSON.stringify({ count: 0, date: today }));
-    }
-  }, []);
-
-  const incrementDailyCount = () => {
-    const today = new Date().toISOString().split('T')[0];
-    setDailyCount(prev => {
-      const newCount = prev + 1;
-      localStorage.setItem('suop_daily_quota', JSON.stringify({ count: newCount, date: today }));
-      return newCount;
-    });
-  };
 
   useEffect(() => {
     if (unlockNotification) {
@@ -71,9 +43,6 @@ export default function App() {
   };
 
   const handleFilesSelected = async (selectedFiles: File[]) => {
-    if (dailyCount + selectedFiles.length > DAILY_LIMIT) {
-      alert(`Atenção: Você só possui mais ${DAILY_LIMIT - dailyCount} renomeios disponíveis hoje.`);
-    }
     setUnlockNotification(false);
     const newFiles: AnalyzedFile[] = selectedFiles.map(file => ({
       id: generateId(),
@@ -97,28 +66,28 @@ export default function App() {
     setIsProcessing(true);
     setUnlockNotification(false);
     let abortQueue = false;
+
     for (const [index, fileItem] of filesToProcess.entries()) {
-      if (abortQueue || abortProcessingRef.current || dailyCount >= DAILY_LIMIT) break;
-      setFiles(prev => {
-        if (abortProcessingRef.current) return prev;
-        return prev.map(f => f.id === fileItem.id ? { ...f, status: AnalysisStatus.PROCESSING } : f);
-      });
+      if (abortQueue || abortProcessingRef.current) break;
+      
+      setFiles(prev => prev.map(f => f.id === fileItem.id ? { ...f, status: AnalysisStatus.PROCESSING } : f));
+      
       try {
+        // Delay para evitar rate limit excessivo (429)
         if (index > 0) {
-          await new Promise(resolve => setTimeout(resolve, 5000));
+          await new Promise(resolve => setTimeout(resolve, 3000));
         }
+        
         const data = await analyzeDocument(fileItem.file, fileItem.docType);
         if (abortProcessingRef.current) return;
-        incrementDailyCount();
-        setFiles(prev => {
-          if (abortProcessingRef.current) return prev;
-          return prev.map(f => f.id === fileItem.id ? { ...f, status: AnalysisStatus.COMPLETE, data } : f);
-        });
+        
+        setFiles(prev => prev.map(f => f.id === fileItem.id ? { ...f, status: AnalysisStatus.COMPLETE, data } : f));
       } catch (error: any) {
         if (abortProcessingRef.current) return;
         let status = AnalysisStatus.ERROR;
         let errorMessage = error.message || "Falha na análise";
         let isQuotaError = false;
+
         if (error.message === "PASSWORD_REQUIRED") {
            status = AnalysisStatus.WAITING_PASSWORD;
            errorMessage = ""; 
@@ -127,7 +96,9 @@ export default function App() {
            errorMessage = "Pausado: Limite da API atingido.";
            abortQueue = true; 
         }
+
         setFiles(prev => prev.map(f => f.id === fileItem.id ? { ...f, status: isQuotaError ? AnalysisStatus.IDLE : status, errorMessage } : f));
+        
         if (isQuotaError) {
            setIsProcessing(false); 
            setIsCooldown(true);
@@ -189,17 +160,8 @@ export default function App() {
   };
 
   const completedCount = files.filter(f => f.status === AnalysisStatus.COMPLETE).length;
-  const idleCount = files.filter(f => f.status === AnalysisStatus.IDLE).length;
   const totalCount = files.length;
-  const hasErrors = files.some(f => f.status === AnalysisStatus.ERROR);
-  const isQuotaFull = dailyCount >= DAILY_LIMIT;
-  const isLocked = isProcessing || isCooldown || isQuotaFull;
-
-  const getQuotaColorClass = () => {
-    if (dailyCount >= DAILY_LIMIT) return 'text-red-400 border-red-500/30 bg-red-500/10';
-    if (dailyCount >= 1400) return 'text-yellow-400 border-yellow-500/30 bg-yellow-500/10';
-    return 'text-blue-400 border-blue-500/30 bg-blue-500/10';
-  };
+  const isLocked = isProcessing || isCooldown;
 
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col font-sans">
@@ -257,41 +219,15 @@ export default function App() {
 
         {activeTab === 'renamer' && (
           <div className="animate-in fade-in duration-300">
-            <div className="space-y-4 mb-6">
-                <div className={`border rounded-lg p-3 flex items-center justify-between transition-colors ${getQuotaColorClass()}`}>
-                    <div className="flex items-center">
-                        <Gauge className="w-5 h-5 mr-3" />
-                        <div>
-                            <h3 className="text-sm font-bold">Cota Diária de Renomeio IA</h3>
-                            <p className="text-xs opacity-80">Limite diário gratuito: 1.500 arquivos</p>
-                        </div>
-                    </div>
-                    <div className="text-right">
-                        <span className="text-lg font-black tracking-widest">{dailyCount} / {DAILY_LIMIT}</span>
-                        <div className="w-32 h-1.5 bg-slate-700 rounded-full mt-1 overflow-hidden">
-                            <div className={`h-full transition-all duration-500 ${dailyCount >= DAILY_LIMIT ? 'bg-red-500' : dailyCount >= 1400 ? 'bg-yellow-500' : 'bg-blue-500'}`} style={{ width: `${Math.min((dailyCount / DAILY_LIMIT) * 100, 100)}%` }} />
-                        </div>
+            {isProcessing && !isCooldown && (
+                <div className="mb-6 bg-slate-800/60 border border-slate-700 rounded-lg p-4 flex items-start gap-3 shadow-sm">
+                    <div className="p-2 bg-blue-500/10 rounded-lg text-blue-400"><Loader2 className="w-5 h-5 animate-spin" /></div>
+                    <div className="flex-1">
+                        <h3 className="text-sm font-semibold text-blue-200 mb-1">Processando Lote</h3>
+                        <p className="text-sm text-slate-400 leading-relaxed">Importação bloqueada temporariamente para garantir a ordem da fila.</p>
                     </div>
                 </div>
-                {isQuotaFull && (
-                    <div className="bg-red-900/20 border border-red-500/30 rounded-lg p-3 flex items-center animate-in shake duration-500">
-                        <AlertTriangle className="w-5 h-5 text-red-500 mr-3" />
-                        <div>
-                            <h3 className="text-sm font-bold text-red-200">Limite Diário Atingido!</h3>
-                            <p className="text-xs text-red-400">Você atingiu o máximo de 1.500 arquivos hoje. A cota será resetada automaticamente amanhã.</p>
-                        </div>
-                    </div>
-                )}
-                {isProcessing && !isCooldown && (
-                    <div className="bg-slate-800/60 border border-slate-700 rounded-lg p-4 flex items-start gap-3 shadow-sm">
-                        <div className="p-2 bg-blue-500/10 rounded-lg text-blue-400"><Loader2 className="w-5 h-5 animate-spin" /></div>
-                        <div className="flex-1">
-                            <h3 className="text-sm font-semibold text-blue-200 mb-1">Processando Lote</h3>
-                            <p className="text-sm text-slate-400 leading-relaxed">Importação bloqueada temporariamente para garantir a ordem da fila.</p>
-                        </div>
-                    </div>
-                )}
-            </div>
+            )}
 
             <div className="mb-10">
               <FileUpload onFilesSelected={handleFilesSelected} disabled={isLocked} selectedType={selectedType} onTypeChange={handleTypeChange} />

@@ -13,8 +13,8 @@ REGRAS GERAIS DE EXTRAÇÃO:
 2. NOME (Beneficiário/Emitente): MAIÚSCULAS. Mantenha espaços entre palavras. Remova pontuação (. , - /).
 3. VALOR (Formato BR): Ex: 1.234,56. Mantenha a vírgula decimal.
 4. NÚMERO DO DOCUMENTO: Extraia APENAS se houver um rótulo explícito e próximo como "Número", "NF-e", "Nº da Nota", "Fatura Nº" ou "Doc".
-   - CRÍTICO: Se encontrar um número sem um título que o identifique como o número do documento/nota, retorne obrigatoriamente null.
-   - PROIBIDO: Não capture chaves de acesso de 44 dígitos, códigos de barras, IDs de autenticação bancária, protocolos ou números soltos.
+   - CRÍTICO: Se encontrar um número sem um título que o identifique como o número do documento/nota, retorne obrigatoriamente null. Não tente "adivinhar" o número.
+   - PROIBIDO: Não capture chaves de acesso de 44 dígitos, códigos de barras, IDs de autenticação bancária, protocolos ou números soltos no rodapé.
 
 CONTEXTO ESPECÍFICO DO TIPO "${docType.toUpperCase()}":
 `;
@@ -25,11 +25,11 @@ CONTEXTO ESPECÍFICO DO TIPO "${docType.toUpperCase()}":
       - DATA: CRÍTICO: Extraia exclusivamente a "DATA DE VENCIMENTO". Se for um boleto ou uma FATURA, ignore qualquer outra data (emissão, processamento).
       - NOME: Procure por "Beneficiário", "Cedente" ou "Razão Social" do emissor.
       - VALOR: Procure por "Valor do Documento" ou "Total a Pagar".
-      - NÚMERO: Capture o "Número do Documento" ou "Nosso Número" apenas se rotulado. Caso contrário, null.
+      - NÚMERO: Capture o "Número do Documento" ou "Nosso Número" apenas se houver título. Caso contrário, null.
       `;
     case 'nota_fiscal':
       return basePrompt + `
-      - DATA: Priorize "Data de Vencimento" se disponível (comum em faturas). Caso contrário, "Data de Emissão".
+      - DATA: Priorize "Data de Vencimento" se disponível. Caso contrário, "Data de Emissão".
       - NOME: Procure por "Emitente", "Prestador" ou "Razão Social".
       - VALOR: Procure por "Valor Total da Nota".
       - NÚMERO: Capture o "Número da Nota" ou "Número". Ignore chaves de acesso.
@@ -40,7 +40,7 @@ CONTEXTO ESPECÍFICO DO TIPO "${docType.toUpperCase()}":
       - DATA: Priorize "Data do Pagamento" ou "Data da Operação".
       - NOME: Procure por "Beneficiário", "Favorecido", "Destino".
       - VALOR: Procure por "Valor Pago".
-      - NÚMERO: Procure por "Autenticação", "Controle" ou "ID da Transação". Se não houver, null.
+      - NÚMERO: Procure por "Autenticação", "Controle" ou "ID da Transação". Se não houver título claro, null.
       `;
   }
 };
@@ -75,7 +75,7 @@ const RESPONSE_SCHEMA = {
 export const analyzeDocument = async (file: File, docType: DocumentType): Promise<ExtractedData> => {
   const apiKey = process.env.API_KEY;
   if (!apiKey) {
-    throw new Error("API Key not found in environment variables.");
+    throw new Error("API Key não configurada no ambiente.");
   }
 
   if (file.type === 'application/pdf') {
@@ -106,14 +106,14 @@ export const analyzeDocument = async (file: File, docType: DocumentType): Promis
             },
           },
           {
-            text: `Analise este documento financeiro. Se for uma FATURA ou BOLETO, foque no VENCIMENTO. Se não houver número identificado por um título claro, deixe docNumber como null.`,
+            text: `Analise este documento financeiro. Priorize DATA DE VENCIMENTO se for boleto/fatura. Se não houver número identificado por um título claro, deixe docNumber como null.`,
           },
         ],
       },
     });
 
     const text = response.text;
-    if (!text) throw new Error("No response from Gemini");
+    if (!text) throw new Error("Sem resposta do Gemini");
 
     const data = JSON.parse(text) as ExtractedData;
     
@@ -176,7 +176,7 @@ const PAYMENT_CODE_SCHEMA = {
 
 export const extractBoletoCode = async (file: File): Promise<{ barCode?: string; pixCode?: string; found: boolean }> => {
   const apiKey = process.env.API_KEY;
-  if (!apiKey) throw new Error("API Key not found");
+  if (!apiKey) throw new Error("API Key não encontrada");
   let localPixCode = await readQrCodeLocally(file);
   if (localPixCode && !localPixCode.startsWith('000201')) {
     if (localPixCode.length < 20) localPixCode = null;
