@@ -6,15 +6,15 @@ import { convertPdfToImage, isPdfEncrypted } from "./pdfService";
 const getSystemPrompt = (docType: DocumentType) => {
   const basePrompt = `
 Você é um assistente especializado em análise de documentos financeiros.
-Sua função é extrair informações para renomeação de arquivos.
+Sua função é extrair informações para renomeação de arquivos de forma precisa.
 
 REGRAS GERAIS DE EXTRAÇÃO:
 1. DATA (formato ddmmYYYY): Converta para apenas números (8 dígitos).
 2. NOME (Beneficiário/Emitente): MAIÚSCULAS. Mantenha espaços entre palavras. Remova pontuação (. , - /).
 3. VALOR (Formato BR): Ex: 1.234,56. Mantenha a vírgula decimal.
 4. NÚMERO DO DOCUMENTO: Extraia APENAS se houver um rótulo explícito e próximo como "Número", "NF-e", "Nº da Nota", "Fatura Nº" ou "Doc".
-   - CRÍTICO: Se encontrar um número sem um título que o identifique como o número do documento/nota, retorne obrigatoriamente null. Não tente "adivinhar" o número.
-   - PROIBIDO: Não capture chaves de acesso de 44 dígitos, códigos de barras, IDs de autenticação bancária, protocolos ou números soltos no rodapé.
+   - CRÍTICO: Se encontrar um número sem um título que o identifique como o número do documento/nota, retorne obrigatoriamente null. Não tente "adivinhar" o número ou usar chaves de acesso.
+   - PROIBIDO: Não capture chaves de acesso de 44 dígitos, códigos de barras, IDs de autenticação bancária, protocolos ou números aleatórios soltos.
 
 CONTEXTO ESPECÍFICO DO TIPO "${docType.toUpperCase()}":
 `;
@@ -22,17 +22,17 @@ CONTEXTO ESPECÍFICO DO TIPO "${docType.toUpperCase()}":
   switch (docType) {
     case 'boleto':
       return basePrompt + `
-      - DATA: CRÍTICO: Extraia exclusivamente a "DATA DE VENCIMENTO". Se for um boleto ou uma FATURA, ignore qualquer outra data (emissão, processamento).
+      - DATA: CRÍTICO: Extraia exclusivamente a "DATA DE VENCIMENTO". Se o documento for um boleto ou uma FATURA, você deve ignorar a data de emissão e usar obrigatoriamente o vencimento.
       - NOME: Procure por "Beneficiário", "Cedente" ou "Razão Social" do emissor.
       - VALOR: Procure por "Valor do Documento" ou "Total a Pagar".
-      - NÚMERO: Capture o "Número do Documento" ou "Nosso Número" apenas se houver título. Caso contrário, null.
+      - NÚMERO: Capture o "Número do Documento" ou "Nosso Número" apenas se houver título claro. Caso contrário, retorne null.
       `;
     case 'nota_fiscal':
       return basePrompt + `
-      - DATA: Priorize "Data de Vencimento" se disponível. Caso contrário, "Data de Emissão".
+      - DATA: Priorize "Data de Vencimento" se disponível (comum em faturas conjugadas). Caso contrário, use "Data de Emissão".
       - NOME: Procure por "Emitente", "Prestador" ou "Razão Social".
       - VALOR: Procure por "Valor Total da Nota".
-      - NÚMERO: Capture o "Número da Nota" ou "Número". Ignore chaves de acesso.
+      - NÚMERO: Capture o "Número da Nota" ou "Número". Ignore chaves de acesso longas.
       `;
     case 'comprovante':
     default:
@@ -40,7 +40,7 @@ CONTEXTO ESPECÍFICO DO TIPO "${docType.toUpperCase()}":
       - DATA: Priorize "Data do Pagamento" ou "Data da Operação".
       - NOME: Procure por "Beneficiário", "Favorecido", "Destino".
       - VALOR: Procure por "Valor Pago".
-      - NÚMERO: Procure por "Autenticação", "Controle" ou "ID da Transação". Se não houver título claro, null.
+      - NÚMERO: Procure por "Autenticação", "Controle" ou "ID da Transação". Se não houver título claro precedendo o número, retorne null.
       `;
   }
 };
@@ -106,7 +106,7 @@ export const analyzeDocument = async (file: File, docType: DocumentType): Promis
             },
           },
           {
-            text: `Analise este documento financeiro. Priorize DATA DE VENCIMENTO se for boleto/fatura. Se não houver número identificado por um título claro, deixe docNumber como null.`,
+            text: `Analise este documento financeiro. Se for uma FATURA ou BOLETO, você deve obrigatoriamente usar a DATA DE VENCIMENTO. Se não houver número identificado por um título explícito (ex: Nº, Nota, Doc), deixe docNumber como null.`,
           },
         ],
       },

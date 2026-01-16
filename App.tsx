@@ -73,7 +73,7 @@ export default function App() {
       setFiles(prev => prev.map(f => f.id === fileItem.id ? { ...f, status: AnalysisStatus.PROCESSING } : f));
       
       try {
-        // Delay para evitar rate limit excessivo (429)
+        // Delay to prevent excessive 429 rate limits
         if (index > 0) {
           await new Promise(resolve => setTimeout(resolve, 3000));
         }
@@ -93,7 +93,7 @@ export default function App() {
            errorMessage = ""; 
         } else if (errorMessage.toLowerCase().includes("quota") || errorMessage.includes("429")) {
            isQuotaError = true;
-           errorMessage = "Pausado: Limite da API atingido.";
+           errorMessage = "Pausado: Limite da API atingido temporariamente.";
            abortQueue = true; 
         }
 
