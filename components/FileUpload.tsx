@@ -1,5 +1,5 @@
 import React, { useRef } from 'react';
-import { UploadCloud, FileCheck, Receipt, ScrollText, Lock, Loader2 } from 'lucide-react';
+import { UploadCloud, FileCheck, Receipt, ScrollText, Lock } from 'lucide-react';
 import { DocumentType } from '../types';
 
 interface FileUploadProps {
@@ -45,8 +45,8 @@ export const FileUpload: React.FC<FileUploadProps> = ({
       className={`
         flex items-center space-x-2 px-4 py-2 rounded-lg text-sm font-medium transition-all
         ${selectedType === type 
-          ? disabled ? 'bg-slate-700 text-slate-400' : 'bg-blue-600 text-white shadow-lg shadow-blue-900/30' 
-          : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white'}
+          ? disabled ? 'bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400' : 'bg-blue-600 text-white shadow-lg shadow-blue-900/30' 
+          : 'bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 hover:text-slate-900 dark:hover:text-white border border-slate-200 dark:border-slate-700'}
         ${disabled ? 'opacity-50 cursor-not-allowed' : ''}
       `}
     >
@@ -57,7 +57,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-center space-x-3 mb-2">
+      <div className="flex justify-center space-x-3 mb-2 flex-wrap gap-y-2">
         <TypeButton type="comprovante" label="Comprovante" icon={FileCheck} />
         <TypeButton type="boleto" label="Boleto" icon={Receipt} />
         <TypeButton type="nota_fiscal" label="Nota Fiscal" icon={ScrollText} />
@@ -72,8 +72,8 @@ export const FileUpload: React.FC<FileUploadProps> = ({
           flex flex-col items-center justify-center 
           transition-all duration-300
           ${disabled 
-            ? 'border-slate-700 bg-slate-900/50 cursor-not-allowed' 
-            : 'border-blue-500/30 bg-slate-800/30 hover:border-blue-500 hover:bg-slate-800/80 cursor-pointer'
+            ? 'border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-900/50 cursor-not-allowed' 
+            : 'border-blue-500/30 bg-white dark:bg-slate-800/30 hover:border-blue-500 dark:hover:border-blue-500 hover:bg-blue-50/30 dark:hover:bg-slate-800/80 cursor-pointer shadow-sm'
           }
         `}
       >
@@ -88,31 +88,29 @@ export const FileUpload: React.FC<FileUploadProps> = ({
         />
         
         {disabled ? (
-            // LOCKED STATE VISUAL
             <div className="flex flex-col items-center opacity-70 animate-pulse">
-                <div className="bg-slate-800 p-4 rounded-full mb-4 border border-slate-700">
-                  <Lock className="w-8 h-8 text-orange-400" />
+                <div className="bg-slate-200 dark:bg-slate-800 p-4 rounded-full mb-4 border border-slate-300 dark:border-slate-700">
+                  <Lock className="w-8 h-8 text-orange-500 dark:text-orange-400" />
                 </div>
-                <h3 className="text-lg font-semibold text-slate-300 mb-1">
+                <h3 className="text-lg font-semibold text-slate-600 dark:text-slate-300 mb-1">
                   Importação Bloqueada
                 </h3>
-                <p className="text-sm text-slate-500 text-center max-w-sm">
-                  Aguarde o processamento atual terminar para evitar erros de cota da API.
+                <p className="text-sm text-slate-500 dark:text-slate-500 text-center max-w-sm">
+                  Aguarde o processamento atual terminar para garantir a estabilidade.
                 </p>
             </div>
         ) : (
-            // NORMAL STATE VISUAL
             <div className="flex flex-col items-center">
-                <div className="bg-slate-700 p-4 rounded-full mb-4">
-                  <UploadCloud className="w-8 h-8 text-blue-400" />
+                <div className="bg-blue-50 dark:bg-slate-700 p-4 rounded-full mb-4 shadow-inner">
+                  <UploadCloud className="w-8 h-8 text-blue-600 dark:text-blue-400" />
                 </div>
-                <h3 className="text-lg font-semibold text-slate-200 mb-1">
+                <h3 className="text-lg font-semibold text-slate-700 dark:text-slate-200 mb-1">
                   Importar {selectedType === 'comprovante' ? 'Comprovantes' : selectedType === 'boleto' ? 'Boletos' : 'Notas Fiscais'}
                 </h3>
-                <p className="text-sm text-slate-400 text-center max-w-sm">
+                <p className="text-sm text-slate-500 dark:text-slate-400 text-center max-w-sm">
                   Arraste e solte seus arquivos aqui ou clique para buscar.
                   <br/>
-                  <span className="text-xs text-slate-500">Todos os arquivos serão classificados como: <strong className="text-blue-400">{selectedType.toUpperCase().replace('_', ' ')}</strong></span>
+                  <span className="text-xs text-slate-400 dark:text-slate-500 mt-2 block italic">Arquivos serão classificados como: <strong className="text-blue-600 dark:text-blue-400">{selectedType.toUpperCase().replace('_', ' ')}</strong></span>
                 </p>
             </div>
         )}

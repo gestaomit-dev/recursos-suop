@@ -7,11 +7,17 @@
     <title>Recursos Suop</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+      // Force Tailwind to use class-based dark mode
+      tailwind.config = {
+        darkMode: 'class'
+      }
+    </script>
     <style>
       body {
         font-family: 'Inter', sans-serif;
-        background-color: #0f172a; /* Slate 900 */
-        color: #f8fafc; /* Slate 50 */
+        /* Smooth transitions for theme switching */
+        transition: background-color 0.3s ease, color 0.3s ease;
       }
       /* Custom Scrollbar */
       ::-webkit-scrollbar {
@@ -19,22 +25,41 @@
         height: 8px;
       }
       ::-webkit-scrollbar-track {
+        background: transparent; 
+      }
+      .dark ::-webkit-scrollbar-track {
         background: #1e293b; 
       }
       ::-webkit-scrollbar-thumb {
-        background: #475569; 
+        background: #cbd5e1; 
         border-radius: 4px;
       }
+      .dark ::-webkit-scrollbar-thumb {
+        background: #475569; 
+      }
       ::-webkit-scrollbar-thumb:hover {
+        background: #94a3b8; 
+      }
+      .dark ::-webkit-scrollbar-thumb:hover {
         background: #64748b; 
       }
     </style>
     <script>
-      // Polyfill para evitar "process is not defined" no navegador
+      // Critical script to apply theme before React mounts
+      (function() {
+        const theme = localStorage.getItem('suop_theme') || 'system';
+        const isDark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        if (isDark) {
+          document.documentElement.classList.add('dark');
+        } else {
+          document.documentElement.classList.remove('dark');
+        }
+      })();
+
       window.process = {
         env: {
           NODE_ENV: 'development',
-          API_KEY: '' // Será substituído pelo bundler ou injetado
+          API_KEY: ''
         }
       };
     </script>
@@ -56,7 +81,7 @@
 }
 </script>
   </head>
-  <body>
+  <body class="bg-slate-50 text-slate-900 dark:bg-slate-900 dark:text-slate-100 transition-colors duration-300">
     <div id="root"></div>
     <script type="module" src="/index.tsx"></script>
   </body>

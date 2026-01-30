@@ -6,7 +6,7 @@ import { FileUpload } from './components/FileUpload';
 import { FileCard } from './components/FileCard';
 import { SplitterFeature } from './components/SplitterFeature';
 import { BarcodeScannerFeature } from './components/BarcodeScannerFeature';
-import { Bot, Download, Trash2, FileOutput, Layers, FileSignature, ScanBarcode, Loader2, AlertTriangle } from 'lucide-react';
+import { Bot, Download, Trash2, FileOutput, Layers, FileSignature, ScanBarcode, Loader2, AlertTriangle, Sun, Moon, Monitor } from 'lucide-react';
 
 const generateId = () => {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
@@ -16,9 +16,11 @@ const generateId = () => {
 };
 
 type Tab = 'renamer' | 'splitter' | 'barcode';
+type Theme = 'light' | 'dark' | 'system';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>('renamer');
+  const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem('suop_theme') as Theme) || 'system');
   const [files, setFiles] = useState<AnalyzedFile[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isCooldown, setIsCooldown] = useState(false);
@@ -26,6 +28,34 @@ export default function App() {
   const [selectedType, setSelectedType] = useState<DocumentType>('comprovante');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const abortProcessingRef = useRef(false);
+
+  // Handle Theme Application
+  useEffect(() => {
+    const root = window.document.documentElement;
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+
+    const applyTheme = () => {
+      const isDark = theme === 'dark' || (theme === 'system' && mediaQuery.matches);
+      if (isDark) {
+        root.classList.add('dark');
+      } else {
+        root.classList.remove('dark');
+      }
+    };
+
+    applyTheme();
+    localStorage.setItem('suop_theme', theme);
+
+    const listener = (e: MediaQueryListEvent) => {
+      if (theme === 'system') {
+        if (e.matches) root.classList.add('dark');
+        else root.classList.remove('dark');
+      }
+    };
+
+    mediaQuery.addEventListener('change', listener);
+    return () => mediaQuery.removeEventListener('change', listener);
+  }, [theme]);
 
   useEffect(() => {
     if (unlockNotification) {
@@ -73,7 +103,6 @@ export default function App() {
       setFiles(prev => prev.map(f => f.id === fileItem.id ? { ...f, status: AnalysisStatus.PROCESSING } : f));
       
       try {
-        // Delay to prevent excessive 429 rate limits
         if (index > 0) {
           await new Promise(resolve => setTimeout(resolve, 3000));
         }
@@ -164,8 +193,8 @@ export default function App() {
   const isLocked = isProcessing || isCooldown;
 
   return (
-    <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col font-sans">
-      <header className="bg-slate-900/80 backdrop-blur-md border-b border-slate-800 sticky top-0 z-40">
+    <div className="min-h-screen transition-colors duration-300 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 flex flex-col font-sans">
+      <header className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 sticky top-0 z-40">
         <div className="max-w-5xl mx-auto px-4 py-4">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center space-x-3">
@@ -173,24 +202,52 @@ export default function App() {
                 <Bot className="w-6 h-6 text-white" />
               </div>
               <div>
-                <h1 className="text-xl font-bold tracking-tight text-white">Recursos Suop</h1>
-                <p className="text-xs text-slate-400">Ferramentas de Automação Financeira</p>
+                <h1 className="text-xl font-bold tracking-tight text-slate-900 dark:text-white">Recursos Suop</h1>
+                <p className="text-xs text-slate-500 dark:text-slate-400">Ferramentas de Automação Financeira</p>
               </div>
             </div>
-            {activeTab === 'renamer' && totalCount > 0 && (
-              <div className="text-sm text-slate-400 bg-slate-800/50 px-3 py-1 rounded-full border border-slate-700">
-                Lote Atual: <strong className="text-white">{completedCount}</strong> / {totalCount}
+            
+            <div className="flex items-center space-x-4">
+              {/* Theme Switcher */}
+              <div className="flex bg-slate-200/50 dark:bg-slate-800 p-1 rounded-lg border border-slate-300/50 dark:border-slate-700">
+                <button 
+                  onClick={() => setTheme('light')} 
+                  className={`p-1.5 rounded-md transition-all ${theme === 'light' ? 'bg-white text-orange-500 shadow-sm' : 'text-slate-500 hover:text-slate-900'}`} 
+                  title="Modo Claro"
+                >
+                  <Sun className="w-4 h-4" />
+                </button>
+                <button 
+                  onClick={() => setTheme('dark')} 
+                  className={`p-1.5 rounded-md transition-all ${theme === 'dark' ? 'bg-slate-700 text-yellow-400 shadow-sm' : 'text-slate-500 hover:text-slate-400'}`} 
+                  title="Modo Escuro"
+                >
+                  <Moon className="w-4 h-4" />
+                </button>
+                <button 
+                  onClick={() => setTheme('system')} 
+                  className={`p-1.5 rounded-md transition-all ${theme === 'system' ? 'bg-slate-300 dark:bg-slate-700 text-blue-500 shadow-sm' : 'text-slate-500 hover:text-slate-900 dark:hover:text-slate-400'}`} 
+                  title="Seguir Sistema"
+                >
+                  <Monitor className="w-4 h-4" />
+                </button>
               </div>
-            )}
+
+              {activeTab === 'renamer' && totalCount > 0 && (
+                <div className="hidden sm:block text-sm text-slate-500 dark:text-slate-400 bg-slate-200/50 dark:bg-slate-800/50 px-3 py-1 rounded-full border border-slate-300/50 dark:border-slate-700">
+                  Lote Atual: <strong className="text-slate-900 dark:text-white">{completedCount}</strong> / {totalCount}
+                </div>
+              )}
+            </div>
           </div>
-          <div className="flex space-x-1 border-b border-slate-800 overflow-x-auto">
-            <button onClick={() => setActiveTab('renamer')} className={`flex items-center space-x-2 px-4 py-3 text-sm font-medium border-b-2 transition-all whitespace-nowrap ${activeTab === 'renamer' ? 'border-blue-500 text-blue-400 bg-slate-800/30' : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/30'}`}>
+          <div className="flex space-x-1 border-b border-slate-200 dark:border-slate-800 overflow-x-auto">
+            <button onClick={() => setActiveTab('renamer')} className={`flex items-center space-x-2 px-4 py-3 text-sm font-medium border-b-2 transition-all whitespace-nowrap ${activeTab === 'renamer' ? 'border-blue-500 text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-slate-800/30' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/30'}`}>
               <FileSignature className="w-4 h-4" /> <span>Renomeador IA</span>
             </button>
-            <button onClick={() => setActiveTab('splitter')} className={`flex items-center space-x-2 px-4 py-3 text-sm font-medium border-b-2 transition-all whitespace-nowrap ${activeTab === 'splitter' ? 'border-orange-500 text-orange-400 bg-slate-800/30' : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/30'}`}>
+            <button onClick={() => setActiveTab('splitter')} className={`flex items-center space-x-2 px-4 py-3 text-sm font-medium border-b-2 transition-all whitespace-nowrap ${activeTab === 'splitter' ? 'border-orange-500 text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-slate-800/30' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/30'}`}>
               <Layers className="w-4 h-4" /> <span>Separador</span>
             </button>
-            <button onClick={() => setActiveTab('barcode')} className={`flex items-center space-x-2 px-4 py-3 text-sm font-medium border-b-2 transition-all whitespace-nowrap ${activeTab === 'barcode' ? 'border-emerald-500 text-emerald-400 bg-slate-800/30' : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/30'}`}>
+            <button onClick={() => setActiveTab('barcode')} className={`flex items-center space-x-2 px-4 py-3 text-sm font-medium border-b-2 transition-all whitespace-nowrap ${activeTab === 'barcode' ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-slate-800/30' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/30'}`}>
               <ScanBarcode className="w-4 h-4" /> <span>Leitor em Lote</span>
             </button>
           </div>
@@ -200,15 +257,15 @@ export default function App() {
       <main className="flex-1 w-full max-w-5xl mx-auto px-4 py-8 relative">
         {showDeleteConfirm && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-            <div className="bg-slate-800 border border-slate-700 rounded-xl p-6 max-w-sm w-full shadow-2xl">
-                <h3 className="text-lg font-bold text-white mb-2 flex items-center">
+            <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6 max-w-sm w-full shadow-2xl">
+                <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-2 flex items-center">
                   <AlertTriangle className="w-5 h-5 text-yellow-500 mr-2" /> Limpar Lista?
                 </h3>
-                <p className="text-slate-400 text-sm mb-6 leading-relaxed">
+                <p className="text-slate-600 dark:text-slate-400 text-sm mb-6 leading-relaxed">
                   Isso removerá todos os arquivos da lista e interromperá qualquer processamento pendente.
                 </p>
                 <div className="flex justify-end space-x-3">
-                  <button onClick={() => setShowDeleteConfirm(false)} className="px-4 py-2 text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-700 rounded-lg">Cancelar</button>
+                  <button onClick={() => setShowDeleteConfirm(false)} className="px-4 py-2 text-sm font-medium text-slate-500 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg">Cancelar</button>
                   <button onClick={executeClearAll} className="px-4 py-2 text-sm font-bold text-white bg-red-600 hover:bg-red-500 rounded-lg shadow-lg shadow-red-900/20 transition-colors flex items-center">
                     <Trash2 className="w-4 h-4 mr-2" /> Sim, Limpar Tudo
                   </button>
@@ -220,11 +277,11 @@ export default function App() {
         {activeTab === 'renamer' && (
           <div className="animate-in fade-in duration-300">
             {isProcessing && !isCooldown && (
-                <div className="mb-6 bg-slate-800/60 border border-slate-700 rounded-lg p-4 flex items-start gap-3 shadow-sm">
-                    <div className="p-2 bg-blue-500/10 rounded-lg text-blue-400"><Loader2 className="w-5 h-5 animate-spin" /></div>
+                <div className="mb-6 bg-blue-50 dark:bg-slate-800/60 border border-blue-200 dark:border-slate-700 rounded-lg p-4 flex items-start gap-3 shadow-sm">
+                    <div className="p-2 bg-blue-500/10 rounded-lg text-blue-600 dark:text-blue-400"><Loader2 className="w-5 h-5 animate-spin" /></div>
                     <div className="flex-1">
-                        <h3 className="text-sm font-semibold text-blue-200 mb-1">Processando Lote</h3>
-                        <p className="text-sm text-slate-400 leading-relaxed">Importação bloqueada temporariamente para garantir a ordem da fila.</p>
+                        <h3 className="text-sm font-semibold text-blue-800 dark:text-blue-200 mb-1">Processando Lote</h3>
+                        <p className="text-sm text-blue-600/80 dark:text-slate-400 leading-relaxed">Importação bloqueada temporariamente para garantir a ordem da fila.</p>
                     </div>
                 </div>
             )}
@@ -236,15 +293,15 @@ export default function App() {
             {files.length > 0 && (
               <div className="flex flex-wrap items-center justify-between mb-6 gap-4">
                 <div className="flex items-center gap-4">
-                    <h2 className="text-lg font-semibold text-slate-200 flex items-center">
-                    <FileOutput className="w-5 h-5 mr-2 text-indigo-400" /> Arquivos no Lote
+                    <h2 className="text-lg font-semibold text-slate-700 dark:text-slate-200 flex items-center">
+                    <FileOutput className="w-5 h-5 mr-2 text-indigo-500 dark:text-indigo-400" /> Arquivos no Lote
                     </h2>
                 </div>
                 <div className="flex items-center space-x-3">
-                  <button onClick={handleClearAll} className="flex items-center px-4 py-2 rounded-lg text-sm font-medium text-slate-400 hover:text-red-400 hover:bg-slate-800 transition-colors">
+                  <button onClick={handleClearAll} className="flex items-center px-4 py-2 rounded-lg text-sm font-medium text-slate-500 dark:text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
                     <Trash2 className="w-4 h-4 mr-2" /> Limpar
                   </button>
-                  <button onClick={handleDownloadAll} disabled={completedCount === 0} className={`flex items-center px-4 py-2 rounded-lg text-sm font-bold shadow-lg transition-colors ${completedCount > 0 ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-blue-900/20' : 'bg-slate-800 text-slate-500 cursor-not-allowed'}`}>
+                  <button onClick={handleDownloadAll} disabled={completedCount === 0} className={`flex items-center px-4 py-2 rounded-lg text-sm font-bold shadow-lg transition-colors ${completedCount > 0 ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-blue-900/20' : 'bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-500 cursor-not-allowed'}`}>
                     <Download className="w-4 h-4 mr-2" /> Baixar Todos ({completedCount})
                   </button>
                 </div>
@@ -253,10 +310,10 @@ export default function App() {
 
             {files.length === 0 ? (
               <div className="text-center py-20 opacity-30">
-                <div className="mx-auto w-24 h-24 bg-slate-800 rounded-full flex items-center justify-center mb-4">
-                  <FileSignature className="w-10 h-10 text-slate-400" />
+                <div className="mx-auto w-24 h-24 bg-slate-200 dark:bg-slate-800 rounded-full flex items-center justify-center mb-4">
+                  <FileSignature className="w-10 h-10 text-slate-400 dark:text-slate-500" />
                 </div>
-                <p className="text-xl font-medium">Nenhum arquivo no lote.</p>
+                <p className="text-xl font-medium text-slate-600 dark:text-slate-400">Nenhum arquivo no lote.</p>
               </div>
             ) : (
               <div className="grid grid-cols-1 gap-4">
@@ -273,7 +330,7 @@ export default function App() {
 
       </main>
 
-      <footer className="py-6 border-t border-slate-800 text-center text-slate-500 text-sm">
+      <footer className="py-6 border-t border-slate-200 dark:border-slate-800 text-center text-slate-500 text-sm">
         <p>Recursos Suop &copy; {new Date().getFullYear()}</p>
       </footer>
     </div>
