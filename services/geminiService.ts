@@ -29,10 +29,10 @@ CONTEXTO ESPECÍFICO DO TIPO "${docType.toUpperCase()}":
       `;
     case 'nota_fiscal':
       return basePrompt + `
-      - DATA: Priorize "Data de Vencimento" se disponível (comum em faturas conjugadas). Caso contrário, use "Data de Emissão".
-      - NOME: Procure por "Emitente", "Prestador" ou "Razão Social".
-      - VALOR: Procure por "Valor Total da Nota".
-      - NÚMERO: Capture o "Número da Nota" ou "Número". Ignore chaves de acesso longas.
+      - DATA: Priorize "Data de Vencimento" se disponível (comum em faturas conjugadas). Caso contrário, use "Data de Emissão". No caso de XML de NF-e, procure pela tag <dhEmi> ou <dVenc>.
+      - NOME: Procure por "Emitente", "Prestador" ou "Razão Social". No XML, procure por <emit><xNome>.
+      - VALOR: Procure por "Valor Total da Nota". No XML, procure por <vNF>.
+      - NÚMERO: Capture o "Número da Nota" ou "Número". Ignore chaves de acesso longas. No XML, use a tag <nNF>.
       `;
     case 'comprovante':
     default:
@@ -86,8 +86,29 @@ export const analyzeDocument = async (file: File, docType: DocumentType): Promis
   }
 
   const ai = new GoogleGenAI({ apiKey });
-  const base64Data = await fileToBase64(file);
-  const mimeType = file.type;
+  const mimeType = file.type || (file.name.endsWith('.xml') ? 'text/xml' : 'application/octet-stream');
+
+  const parts: any[] = [];
+  
+  // Se for XML, enviamos como texto para melhor precisão
+  if (file.name.endsWith('.xml') || mimeType.includes('xml')) {
+    const textContent = await file.text();
+    parts.push({
+      text: `CONTEÚDO DO DOCUMENTO XML:\n\`\`\`xml\n${textContent}\n\`\`\``
+    });
+  } else {
+    const base64Data = await fileToBase64(file);
+    parts.push({
+      inlineData: {
+        mimeType: mimeType,
+        data: base64Data,
+      },
+    });
+  }
+
+  parts.push({
+    text: `Analise este documento financeiro (Tipo: ${docType}). Se for uma FATURA ou BOLETO, você deve obrigatoriamente usar a DATA DE VENCIMENTO. Se não houver número identificado por um título explícito (ex: Nº, Nota, Doc), deixe docNumber como null. No caso de XML, analise as tags estruturais.`
+  });
 
   try {
     const response = await ai.models.generateContent({
@@ -98,17 +119,7 @@ export const analyzeDocument = async (file: File, docType: DocumentType): Promis
         responseSchema: RESPONSE_SCHEMA,
       },
       contents: {
-        parts: [
-          {
-            inlineData: {
-              mimeType: mimeType,
-              data: base64Data,
-            },
-          },
-          {
-            text: `Analise este documento financeiro. Se for uma FATURA ou BOLETO, você deve obrigatoriamente usar a DATA DE VENCIMENTO. Se não houver número identificado por um título explícito (ex: Nº, Nota, Doc), deixe docNumber como null.`,
-          },
-        ],
+        parts: parts,
       },
     });
 
@@ -194,7 +205,7 @@ export const extractBoletoCode = async (file: File): Promise<{ barCode?: string;
       },
       contents: {
         parts: [
-          { inlineData: { mimeType: file.type, data: base64Data } },
+          { inlineData: { mimeType: file.type || 'application/pdf', data: base64Data } },
           { text: "Extraia a linha digitável do boleto." },
         ],
       },

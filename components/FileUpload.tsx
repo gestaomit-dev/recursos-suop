@@ -1,5 +1,5 @@
 import React, { useRef } from 'react';
-import { UploadCloud, FileCheck, Receipt, ScrollText, Lock } from 'lucide-react';
+import { UploadCloud, FileCheck, Receipt, ScrollText, Lock, FileCode } from 'lucide-react';
 import { DocumentType } from '../types';
 
 interface FileUploadProps {
@@ -83,7 +83,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({
           onChange={handleFileChange}
           className="hidden"
           multiple
-          accept="application/pdf,image/*"
+          accept="application/pdf,image/*,.xml,text/xml,application/xml"
           disabled={disabled}
         />
         
@@ -111,6 +111,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({
                   Arraste e solte seus arquivos aqui ou clique para buscar.
                   <br/>
                   <span className="text-xs text-slate-400 dark:text-slate-500 mt-2 block italic">Arquivos serão classificados como: <strong className="text-blue-600 dark:text-blue-400">{selectedType.toUpperCase().replace('_', ' ')}</strong></span>
+                  <span className="text-[10px] text-slate-400 dark:text-slate-500 mt-1 block">Suporta PDF, Imagens e XML</span>
                 </p>
             </div>
         )}

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { AnalyzedFile, AnalysisStatus, DocumentType } from '../types';
 import { 
   FileText, CheckCircle2, AlertCircle, Loader2, 
-  Edit2, Save, Trash2, Download, Eye, X, Lock, Unlock
+  Edit2, Save, Trash2, Download, Eye, X, Lock, Unlock, FileCode
 } from 'lucide-react';
 
 interface FileCardProps {
@@ -38,7 +38,8 @@ export const FileCard: React.FC<FileCardProps> = ({ item, onUpdate, onDelete, on
     parts.push(safeValue);
     parts.push(typeLabel);
 
-    return `${parts.join('_')}.pdf`;
+    const ext = item.originalName.split('.').pop() || 'pdf';
+    return `${parts.join('_')}.${ext}`;
   };
 
   const handleSave = () => {
@@ -68,12 +69,14 @@ export const FileCard: React.FC<FileCardProps> = ({ item, onUpdate, onDelete, on
     : 'Aguardando análise...';
 
   const StatusIcon = () => {
+    const isXml = item.originalName.toLowerCase().endsWith('.xml');
+    
     switch (item.status) {
       case AnalysisStatus.PROCESSING: return <Loader2 className="w-5 h-5 text-blue-500 dark:text-blue-400 animate-spin" />;
       case AnalysisStatus.COMPLETE: return <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />;
       case AnalysisStatus.ERROR: return <AlertCircle className="w-5 h-5 text-red-500 dark:text-red-400" />;
       case AnalysisStatus.WAITING_PASSWORD: return <Lock className="w-5 h-5 text-orange-600 dark:text-orange-400" />;
-      default: return <FileText className="w-5 h-5 text-slate-400" />;
+      default: return isXml ? <FileCode className="w-5 h-5 text-indigo-400" /> : <FileText className="w-5 h-5 text-slate-400" />;
     }
   };
 
